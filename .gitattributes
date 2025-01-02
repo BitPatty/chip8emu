@@ -1,0 +1,6 @@
+*.zon text eol=lf
+*.zig text eol=lf
+*.md text eol=lf
+
+.gitattributes text eol=lf
+.gitignore text eol=lf
