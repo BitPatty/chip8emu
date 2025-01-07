@@ -1,68 +1,59 @@
 // --- std --- //
 const std = @import("std");
 const heap = @import("std").heap;
+const Allocator = @import("std").mem.Allocator;
 
-// --- common  --- //
-const threads = @import("./common/threads.zig");
-const log = @import("./common/log.zig");
-const memory = @import("./common/memory.zig");
-
-// --- components  --- //
-const chip8_clock = @import("./components/clock.zig");
-const chip8_frame_buffer = @import("./components/framebuffer.zig");
-const chip8_ram = @import("./components/ram.zig");
-const chip8_emulator = @import("./emulator.zig");
+// --- lib  --- //
+const threads = @import("./threading.zig");
+const logging = @import("./logging.zig");
+const timing = @import("./timing.zig");
 
 pub fn main() !void {
     var gpa: heap.GeneralPurposeAllocator(.{}) = .init;
     const allocator = gpa.allocator();
     defer _ = gpa.deinit();
 
-    log.infoln("Initializing memory", .{});
-    const emu_ram = try chip8_ram.init(&allocator, .{});
-    defer emu_ram.deallocate();
+    logging.infoln("Initializing clock", .{});
+    var fps_clock = timing.ReferenceClock {
+        .ticks_per_second = 30,
+    };
 
-    log.infoln("Initializing frame buffer", .{});
-    const emu_fb = try chip8_frame_buffer.init(&allocator, .{});
-    defer emu_fb.deallocate();
-
-    log.infoln("Initializing clock", .{});
-    const emu_clock = try chip8_clock.init(&allocator, .{});
-    defer emu_clock.deallocate();
-
-    log.infoln("Initializing emulator", .{});
-    const emu = try chip8_emulator.init(&allocator, .{
-        .clock = emu_clock,
-        .frame_buffer = emu_fb,
-        .memory = emu_ram,
-    });
-    defer emu.deallocate();
-
-    log.infoln("Starting emulator thread", .{});
+    logging.infoln("Starting emulator thread", .{});
     const emu_thread = try threads.spawnBackgroundThread(
-        *const chip8_emulator.Emulator, &allocator, runEmulator, emu
+        *timing.ReferenceClock, &allocator, runEmu, &fps_clock
     );
     defer emu_thread.deallocate();
 
-    log.infoln("Sleeping for 10 seconds", .{});
+    logging.infoln("Sleeping for 10 seconds", .{});
     threads.sleep(10_000_000_000);
     emu_thread.cancel();
-    log.infoln("Done", .{});
+    logging.infoln("Done", .{});
 }
 
 
-pub fn runEmulator(
+pub fn runEmu(
    cancellation_token: *const threads.CancellationToken,
-   emu: *const chip8_emulator.Emulator
+   fps_clock: *timing.ReferenceClock
 ) void {
     var i: u32 = 0;
 
+
+    var rel_clock = timing.RelativeClock{
+        .reference_clock = fps_clock,
+        .ticks_per_second = 500,
+        .ref_start_tick = fps_clock.ticks
+    };
+
+    fps_clock.setState(.RUNNING);
+
     while(!cancellation_token.is_set) : ( i += 1 ) {
-        if(@mod(emu.clock.ticks.*, emu.clock.frequency.* + 1) == 0)
-        log.infoln("Ticks {}, state {}", .{ emu.clock.ticks.*, emu.clock.state.* });
-        emu.clock.progressTicks();
-        const sleepDuration = emu.clock.nanosecondsToNextTick();
-        if(sleepDuration < 1000) continue;
-        threads.sleep(sleepDuration);
+
+        logging.infoln("FPS Ticks: {}, Emu Ticks: {}", .{
+            fps_clock.ticks,
+            rel_clock.ticks
+        });
+
+        rel_clock.waitForTick(cancellation_token);
     }
 }
+

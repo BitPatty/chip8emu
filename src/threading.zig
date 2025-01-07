@@ -8,7 +8,7 @@ pub const CancellationToken = struct {
     is_set: bool
 };
 
-pub const BackgroundThread = struct {
+const BackgroundThread = struct {
     /// The allocator used for allocating the background thread
     _allocator: *const Allocator,
 
