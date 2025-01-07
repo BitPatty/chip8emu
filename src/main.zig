@@ -7,7 +7,7 @@ const Allocator = @import("std").mem.Allocator;
 const threads = @import("./common/threads.zig");
 const logging = @import("./common/logging.zig");
 const time = @import("./common/time.zig");
-const assembler = @import("./utils/assembler.zig");
+const assembler = @import("./assembly/assembler.zig");
 
 // -- components -- //
 const framebuffer = @import("./components/frame-buffer.zig");
@@ -22,7 +22,7 @@ pub fn main() !void {
         .ticks_per_second = 30,
     };
 
-    const word1: []const u8 = "SNE";
+    const word1: []const u8 = "AND";
     const word2: []const u8 = "V1";
     const word3: []const u8 = "V3";
 
