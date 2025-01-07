@@ -3,16 +3,18 @@ const builtin = @import("builtin");
 const posix = @import("std").posix;
 const time = @import("std").time;
 
-// -- lib -- //
-const threading = @import("./threading.zig");
-const logging = @import("./logging.zig");
+// -- common -- //
+const threads = @import("./threads.zig");
 
 pub const ClockState = enum {
     PAUSED,
     RUNNING
 };
 
-const E9 = 1_000_000_000;
+const NANOSECONDS_PER_MILLISECOND: u64 = 1e6;
+const NANOSECONDS_PER_SECOND: u64 = 1e9;
+
+// TODO: Handle case where next timespan is behind current timestamp (drift)
 
 pub const ReferenceClock = struct {
     /// The real-time frequency of the clock in Hz
@@ -28,20 +30,21 @@ pub const ReferenceClock = struct {
     /// The total time in real-time the clock spent in paused state
     pause_duration_ns: u64 = 0,
 
+    /// Updates the state of the clock
     pub fn setState(self: *ReferenceClock, state: ClockState) void {
         if(self.state == state) return;
 
         switch(state) {
             .PAUSED => {
-                self.pause_time_ns = nowNs();
+                self.pause_time_ns = epochNanoseconds();
             },
             .RUNNING => {
                 if(self.ticks == 0) {
-                    self.start_time_ns = nowNs();
+                    self.start_time_ns = epochNanoseconds();
                 }
                 else {
                     const pause_time = if (self.pause_time_ns == null) 0 else self.pause_time_ns.?;
-                    self.pause_duration_ns += nowNs() - pause_time;
+                    self.pause_duration_ns += epochNanoseconds() - pause_time;
                     self.pause_time_ns = null;
                 }
             }
@@ -52,14 +55,13 @@ pub const ReferenceClock = struct {
 
     /// Waits for the next tick to occure according to the
     /// real time clock
-    pub fn waitForTick(self: *ReferenceClock, cancellation_token: ?*const threading.CancellationToken) void {
+    pub fn waitForTick(self: *ReferenceClock, cancellation_token: ?*const threads.CancellationToken) void {
         // Wait the frequency is not set or the clock is paused
         // retry after 1ms
         while((self.ticks_per_second == 0) or (self.state == .PAUSED)) {
             if(cancellation_token) | ct | { if(ct.is_set) return; }
-            threading.sleep(1e6);
+            threads.sleep(1e6);
         }
-
 
         if(self.ticks == 0) {
             self.ticks += 1;
@@ -68,28 +70,27 @@ pub const ReferenceClock = struct {
 
         // Number of entire nanoseconds that should pass between two
         // ticks
-        var tick_diff_ns: u64 = @divFloor(E9, self.ticks_per_second);
+        var tick_diff_ns: u64 = @divFloor(NANOSECONDS_PER_SECOND, self.ticks_per_second);
 
         // At the end of each second, skip the amount of nanoseconds
         // that are not covered by the reference's frequency for smoothing
         // and accuracy
         if(@mod(self.ticks + 1, self.ticks_per_second) == 0) {
-            const correction_diff_ns: u64 = @mod(E9, self.ticks_per_second);
+            const correction_diff_ns: u64 = @mod(NANOSECONDS_PER_SECOND, self.ticks_per_second);
             tick_diff_ns += correction_diff_ns;
         }
 
         // The runtime in real-time ns that SHOULD have passed while the
         // clock was running according to the current number of ticks
-        const ns_per_tick = @divFloor(E9, self.ticks_per_second);
+        const ns_per_tick = @divFloor(NANOSECONDS_PER_SECOND, self.ticks_per_second);
         const relative_runtime_ns = self.ticks * ns_per_tick;
 
         // The runtime in real-time ns that SHOULD pass to the next tick
         const next_tick_relative_runtime_ns = relative_runtime_ns + tick_diff_ns;
 
         // The runtime in real-time ns that DID pass while the clock was running
-        const actual_runtime_ns = nowNs() - self.start_time_ns - self.pause_duration_ns;
+        const actual_runtime_ns = epochNanoseconds() - self.start_time_ns - self.pause_duration_ns;
 
-        // logging.infoln("Actual (Current): {}, Next: {}, Current: {}", .{ actual_runtime_ns, next_tick_relative_runtime_ns, relative_runtime_ns});
         // Next tick behind schedule
         if(actual_runtime_ns >= next_tick_relative_runtime_ns) {
             self.ticks += 1;
@@ -97,7 +98,7 @@ pub const ReferenceClock = struct {
         }
 
         // Wait for real time to catch up
-        threading.sleep(next_tick_relative_runtime_ns - actual_runtime_ns);
+        threads.sleep(next_tick_relative_runtime_ns - actual_runtime_ns);
         self.ticks += 1;
     }
 };
@@ -120,11 +121,11 @@ pub const RelativeClock = struct {
 
     /// Waits for the next tick to occur according to
     /// the reference clock and then performs a tick
-    pub fn waitForTick(self: *RelativeClock, cancellation_token: ?*const threading.CancellationToken) void {
+    pub fn waitForTick(self: *RelativeClock, cancellation_token: ?*const threads.CancellationToken) void {
         // Wait the frequency is not set retry after 1ms
         while((self.ticks_per_second == 0)) {
             if(cancellation_token) | ct | { if(ct.is_set) return; }
-            threading.sleep(1e6);
+            threads.sleep(1e6);
         }
 
         const ref_target_ticks = self.ref_start_tick + @divFloor((self.ticks + 1) * self.reference_clock.ticks_per_second, self.ticks_per_second);
@@ -137,9 +138,17 @@ pub const RelativeClock = struct {
     }
 };
 
+pub fn epochSeconds() u64 {
+    return @divFloor(epochNanoseconds(), NANOSECONDS_PER_SECOND);
+}
 
-/// The current timestamp (since 01.01.1970) in nanoseconds
-fn nowNs() u64 {
+/// The current epoch in milliseconds
+pub fn epochMilliseconds() u64 {
+    return @divFloor(epochNanoseconds(), NANOSECONDS_PER_MILLISECOND);
+}
+
+/// The current epoch in nanoseconds
+pub fn epochNanoseconds() u64 {
        const i = time.Instant.now() catch @panic("HW Time not available");
        return timespecToNs(i.timestamp);
 }

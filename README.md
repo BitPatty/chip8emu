@@ -5,6 +5,6 @@ An experimental, work in progress emulator for the [CHIP-8](https://en.wikipedia
 ## References
 
 - [Cowgod's Chip-8 Technical Reference](http://devernay.free.fr/hacks/chip8/C8TECH10.HTM)
-
+- [Chip-8 instruction set](http://devernay.free.fr/hacks/chip8/chip8def.htm)
 
 
