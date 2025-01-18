@@ -20,6 +20,7 @@ pub const AssemblerError = error {
 
 const OpCode = enum {
     ADD,
+    ADDI,
     AND,
     CALL,
     CLS,
@@ -107,6 +108,7 @@ pub fn assemble(instruction: tokens) AssemblerError![4]u4 {
 
     switch(opcode) {
         .ADD => return assembleADD(arguments),
+        .ADDI => return assembleADDI(arguments),
         .AND => return assembleAND(arguments),
         .CALL => return assembleCALL(arguments),
         .CLS => return assembleCLS(arguments),
@@ -131,8 +133,29 @@ pub fn assemble(instruction: tokens) AssemblerError![4]u4 {
 
 /// SYS - Instruction used to call native routines on the host machine
 ///       and as such not implemented in the emulator
+///
+/// ```txt
+/// SYS addr => 0nnn
+/// ```
 inline fn assembleSYS(_: tokens) AssemblerError![4]u4 {
     return AssemblerError.NOT_IMPLEMENTED;
+}
+
+/// Assembles the ADDI instruction
+///
+/// ```txt
+/// ADDI Vx, byte => 7xkk
+/// ```
+inline fn assembleADDI(arguments: tokens) AssemblerError![4]u4 {
+    if(arguments.len > 2) return AssemblerError.TOO_MANY_ARGUMENTS;
+
+    const arg1 = getInstructionArgumentAtIndex(arguments, 0) orelse return AssemblerError.MISSING_ARGUMENT;
+    const arg2 = getInstructionArgumentAtIndex(arguments, 1) orelse return AssemblerError.MISSING_ARGUMENT;
+
+    const vx = try parseRegisterArgument(arg1);
+    const byte = try parseByteArgument(arg2);
+
+    return [4]u4{ 0x7, vx, byte[0], byte[1]};
 }
 
 /// Assembles the ADD instruction
@@ -146,8 +169,7 @@ inline fn assembleADD(arguments: tokens) AssemblerError![4]u4 {
     if(arguments.len > 2) return AssemblerError.TOO_MANY_ARGUMENTS;
 
     const arg1 = getInstructionArgumentAtIndex(arguments, 0) orelse return AssemblerError.MISSING_ARGUMENT;
-
-    const arg2 = getInstructionArgumentAtIndex(arguments, 0) orelse return AssemblerError.MISSING_ARGUMENT;
+    const arg2 = getInstructionArgumentAtIndex(arguments, 1) orelse return AssemblerError.MISSING_ARGUMENT;
 
     // ADD I, Vx
     if(arg1.len == 1) {
